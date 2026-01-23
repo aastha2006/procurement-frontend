@@ -23,12 +23,18 @@ class ApiClient {
 
     private getAccessToken(): string | null {
         const authUserRaw = localStorage.getItem("authUser");
-        if (!authUserRaw) return null;
+        if (!authUserRaw) {
+            console.warn("ApiClient: No authUser found in localStorage");
+            return null;
+        }
 
         try {
             const authUser: AuthUser = JSON.parse(authUserRaw);
-            return authUser.accessToken || null;
-        } catch {
+            const token = authUser.accessToken || null;
+            if (!token) console.warn("ApiClient: authUser exists but accessToken is missing");
+            return token;
+        } catch (e) {
+            console.error("ApiClient: Failed to parse authUser from localStorage", e);
             return null;
         }
     }
@@ -47,8 +53,14 @@ class ApiClient {
         if (!skipAuth) {
             const token = this.getAccessToken();
             if (token) {
+                // Log masked token for debugging
+                console.log(`ApiClient: Adding Auth header to ${endpoint} with token ending in ...${token.slice(-6)}`);
                 requestHeaders.set("Authorization", `Bearer ${token}`);
+            } else {
+                console.warn(`ApiClient: Requesting ${endpoint} but NO TOKEN found`);
             }
+        } else {
+            console.log(`ApiClient: Skipping auth for ${endpoint}`);
         }
 
         let response = await fetch(url, {
@@ -58,6 +70,7 @@ class ApiClient {
 
         // 🔁 Refresh token flow
         if (response.status === 401 && !skipAuth) {
+            console.warn("ApiClient: Received 401, attempting refresh...");
             const authUserRaw = localStorage.getItem("authUser");
             if (authUserRaw) {
                 const authUser: AuthUser = JSON.parse(authUserRaw);
@@ -89,6 +102,7 @@ class ApiClient {
                             "authUser",
                             JSON.stringify(updatedAuthUser)
                         );
+                        console.log("ApiClient: Token refreshed successfully.");
 
                         // 🔁 Retry original request
                         requestHeaders.set(
@@ -100,7 +114,11 @@ class ApiClient {
                             ...rest,
                             headers: requestHeaders,
                         });
+                    } else {
+                        console.error("ApiClient: Token refresh failed.");
                     }
+                } else {
+                    console.warn("ApiClient: No refresh token available.");
                 }
             }
         }

@@ -38,6 +38,8 @@ interface AuthUser {
 
 export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
+  // Force build hash update
+
   const [showMemberOnboarding, setShowMemberOnboarding] = useState(false);
   const [showSupplierOnboarding, setShowSupplierOnboarding] = useState(false);
   const [showPublicRegistration, setShowPublicRegistration] = useState(false);
@@ -46,17 +48,17 @@ export default function App() {
   // Permission checking utility
   const hasPermission = (module: string, action: 'VIEW' | 'CREATE' | 'EDIT' | 'DELETE' | 'APPROVE' = 'VIEW') => {
     if (!user || !user.permissions || user.permissions.length === 0) return true; // Default to true if no permissions loaded (backward compatibility)
-    
+
     // Convert UI module name to token module name
     // "Purchase Requisition" -> "PURCHASE_REQUISITION"
     // "Vendor Management" -> "VENDOR_MANAGEMENT"
     // "Purchase Orders" -> "PURCHASE_ORDERS"
     // "Master Data" -> "MASTER_DATA"
     const tokenModule = module.toUpperCase().replace(/ /g, '_');
-    
+
     // Build the permission string to look for
     const permissionString = `${tokenModule}:${action}`;
-    
+
     // Check if user has this permission
     return user.permissions.some(p => p === permissionString);
   };
