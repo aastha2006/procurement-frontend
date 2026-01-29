@@ -62,6 +62,7 @@ export const generatePOFromQuotation = async (
         gst: gst.toString()
     });
 
+
     const response = await api.post(`/procurement/po?${params.toString()}`, undefined, {
         headers: { 'accept': '*/*' }
     });
@@ -69,6 +70,84 @@ export const generatePOFromQuotation = async (
     if (!response.ok) {
         const errorText = await response.text();
         throw new Error(errorText || 'Failed to generate Purchase Order');
+    }
+    return response.json();
+};
+
+export const fetchPurchaseOrders = async (authToken: string) => {
+    const response = await api.get('/procurement/po', {
+        headers: { 'accept': '*/*' }
+    });
+    if (!response.ok) throw new Error('Failed to fetch Purchase Orders');
+    return response.json();
+};
+
+export const fetchInvoices = async (authToken: string) => {
+    const response = await api.get('/procurement/invoice', {
+        headers: { 'accept': '*/*' }
+    });
+    if (!response.ok) throw new Error('Failed to fetch Invoices');
+    return response.json();
+};
+
+export const fetchPayments = async (authToken: string) => {
+    const response = await api.get('/procurement/payment', {
+        headers: { 'accept': '*/*' }
+    });
+    if (!response.ok) throw new Error('Failed to fetch Payments');
+    return response.json();
+};
+
+export const submitInvoice = async (
+    authToken: string,
+    poId: number,
+    vendorId: number,
+    invoiceNumber: string,
+    date: string,
+    amount: number,
+    gst: number
+) => {
+    const params = new URLSearchParams({
+        poId: poId.toString(),
+        vendorId: vendorId.toString(),
+        invoiceNumber: invoiceNumber,
+        invoiceDate: date,
+        amount: amount.toString(),
+        gst: gst.toString()
+    });
+
+    const response = await api.post(`/procurement/invoice?${params.toString()}`, undefined, {
+        headers: { 'accept': '*/*' }
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to submit invoice');
+    }
+    return response.json();
+};
+
+export const recordPayment = async (
+    authToken: string,
+    invoiceId: number,
+    amount: number,
+    mode: string,
+    reference: string
+) => {
+    const params = new URLSearchParams({
+        invoiceId: invoiceId.toString(),
+        amount: amount.toString(),
+        mode: mode,
+        reference: reference
+    });
+
+    const response = await api.post(`/procurement/payment?${params.toString()}`, undefined, {
+        headers: { 'accept': '*/*' }
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to record payment');
     }
     return response.json();
 };

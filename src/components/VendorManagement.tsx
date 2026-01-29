@@ -243,10 +243,11 @@ export function VendorManagement({ authToken, userGroupName, vendorId, isSupplie
 
 
   const filteredVendors = approvedVendors.filter(vendor =>
-    vendor.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    vendor.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    vendor.companyName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    vendor.gst?.toLowerCase().includes(searchTerm.toLowerCase())
+    (vendor.companyName?.toLowerCase() !== 'ezatlas') &&
+    (vendor.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vendor.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vendor.companyName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vendor.gst?.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const renderPagination = () => {
@@ -453,7 +454,7 @@ export function VendorManagement({ authToken, userGroupName, vendorId, isSupplie
                       )}
                       <Badge>{selectedVendor.status}</Badge>
                     </div>
-                    {selectedVendor.companyName && (
+                    {selectedVendor.companyName && selectedVendor.companyName.toLowerCase() !== 'ezatlas' && (
                       <p className="text-sm text-slate-600 mt-1">{selectedVendor.companyName}</p>
                     )}
                   </div>

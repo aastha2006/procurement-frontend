@@ -177,9 +177,9 @@ export function RFQManagement({ authToken }: RFQManagementProps) {
 
         // Handle response - could be array or paginated object
         if (Array.isArray(data)) {
-          setApprovedVendors(data);
+          setApprovedVendors(data.filter((v: any) => v.companyName?.toLowerCase() !== 'ezatlas'));
         } else if (data.content && Array.isArray(data.content)) {
-          setApprovedVendors(data.content);
+          setApprovedVendors(data.content.filter((v: any) => v.companyName?.toLowerCase() !== 'ezatlas'));
         } else {
           setApprovedVendors([]);
         }

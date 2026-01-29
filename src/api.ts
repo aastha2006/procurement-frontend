@@ -5,38 +5,60 @@ interface RefreshTokenResponse {
     refreshtoken?: string;
 }
 
-interface AuthUser {
+export interface AuthUser {
     accessToken: string;
     refreshToken?: string;
+    [key: string]: any; // Allow other properties
 }
 
 interface ApiRequestOptions extends RequestInit {
     skipAuth?: boolean;
 }
 
+type TokenChangeListener = (user: AuthUser | null) => void;
+
 class ApiClient {
     private baseUrl: string;
+    private isRefreshing = false;
+    private refreshSubscribers: ((token: string) => void)[] = [];
+    private tokenChangeListeners: TokenChangeListener[] = [];
 
     constructor(baseUrl: string) {
         this.baseUrl = baseUrl;
     }
 
+    public subscribeToTokenChanges(listener: TokenChangeListener) {
+        this.tokenChangeListeners.push(listener);
+        return () => {
+            this.tokenChangeListeners = this.tokenChangeListeners.filter(l => l !== listener);
+        };
+    }
+
+    private notifyTokenChange(user: AuthUser | null) {
+        this.tokenChangeListeners.forEach(listener => listener(user));
+    }
+
     private getAccessToken(): string | null {
         const authUserRaw = localStorage.getItem("authUser");
         if (!authUserRaw) {
-            console.warn("ApiClient: No authUser found in localStorage");
             return null;
         }
-
         try {
             const authUser: AuthUser = JSON.parse(authUserRaw);
-            const token = authUser.accessToken || null;
-            if (!token) console.warn("ApiClient: authUser exists but accessToken is missing");
-            return token;
+            return authUser.accessToken || null;
         } catch (e) {
             console.error("ApiClient: Failed to parse authUser from localStorage", e);
             return null;
         }
+    }
+
+    private onRefreshed(token: string) {
+        this.refreshSubscribers.forEach((cb) => cb(token));
+        this.refreshSubscribers = [];
+    }
+
+    private addRefreshSubscriber(cb: (token: string) => void) {
+        this.refreshSubscribers.push(cb);
     }
 
     private async request(
@@ -44,23 +66,14 @@ class ApiClient {
         options: ApiRequestOptions = {}
     ): Promise<Response> {
         const { skipAuth, headers, ...rest } = options;
-
-        const url =
-            this.baseUrl + (endpoint.startsWith("/") ? endpoint : `/${endpoint}`);
-
+        const url = this.baseUrl + (endpoint.startsWith("/") ? endpoint : `/${endpoint}`);
         const requestHeaders = new Headers(headers);
 
         if (!skipAuth) {
             const token = this.getAccessToken();
             if (token) {
-                // Log masked token for debugging
-                console.log(`ApiClient: Adding Auth header to ${endpoint} with token ending in ...${token.slice(-6)}`);
                 requestHeaders.set("Authorization", `Bearer ${token}`);
-            } else {
-                console.warn(`ApiClient: Requesting ${endpoint} but NO TOKEN found`);
             }
-        } else {
-            console.log(`ApiClient: Skipping auth for ${endpoint}`);
         }
 
         let response = await fetch(url, {
@@ -70,60 +83,86 @@ class ApiClient {
 
         // 🔁 Refresh token flow
         if (response.status === 401 && !skipAuth) {
-            console.warn("ApiClient: Received 401, attempting refresh...");
+            if (this.isRefreshing) {
+                // If already refreshing, wait for the new token
+                return new Promise((resolve) => {
+                    this.addRefreshSubscriber((newToken) => {
+                        requestHeaders.set("Authorization", `Bearer ${newToken}`);
+                        resolve(
+                            fetch(url, {
+                                ...rest,
+                                headers: requestHeaders,
+                            })
+                        );
+                    });
+                });
+            }
+
+            this.isRefreshing = true;
             const authUserRaw = localStorage.getItem("authUser");
+
             if (authUserRaw) {
                 const authUser: AuthUser = JSON.parse(authUserRaw);
 
                 if (authUser.refreshToken) {
-                    const refreshResponse = await fetch(
-                        `${this.baseUrl}/api/auth/refresh-token`,
-                        {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                refreshtoken: authUser.refreshToken,
-                            }),
+                    try {
+                        const refreshResponse = await fetch(
+                            `${this.baseUrl}/api/auth/refresh-token`,
+                            {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ refreshtoken: authUser.refreshToken }),
+                            }
+                        );
+
+                        if (refreshResponse.ok) {
+                            const data: RefreshTokenResponse = await refreshResponse.json();
+
+                            // ✅ Update stored authUser
+                            const updatedAuthUser = {
+                                ...authUser,
+                                accessToken: data.accesstoken,
+                                refreshToken: data.refreshtoken ?? authUser.refreshToken,
+                            };
+
+                            localStorage.setItem("authUser", JSON.stringify(updatedAuthUser));
+                            this.notifyTokenChange(updatedAuthUser); // Notify listeners
+
+                            this.onRefreshed(data.accesstoken);
+
+                            // 🔁 Retry original request
+                            requestHeaders.set("Authorization", `Bearer ${data.accesstoken}`);
+                            response = await fetch(url, {
+                                ...rest,
+                                headers: requestHeaders,
+                            });
+                        } else {
+                            // Refresh failed - logout
+                            this.handleLogout();
                         }
-                    );
-
-                    if (refreshResponse.ok) {
-                        const data: RefreshTokenResponse =
-                            await refreshResponse.json();
-
-                        // ✅ Update stored authUser
-                        const updatedAuthUser = {
-                            ...authUser,
-                            accessToken: data.accesstoken,
-                            refreshToken: data.refreshtoken ?? authUser.refreshToken,
-                        };
-
-                        localStorage.setItem(
-                            "authUser",
-                            JSON.stringify(updatedAuthUser)
-                        );
-                        console.log("ApiClient: Token refreshed successfully.");
-
-                        // 🔁 Retry original request
-                        requestHeaders.set(
-                            "Authorization",
-                            `Bearer ${data.accesstoken}`
-                        );
-
-                        response = await fetch(url, {
-                            ...rest,
-                            headers: requestHeaders,
-                        });
-                    } else {
-                        console.error("ApiClient: Token refresh failed.");
+                    } catch (error) {
+                        console.error("Token refresh error", error);
+                        this.handleLogout();
+                    } finally {
+                        this.isRefreshing = false;
                     }
                 } else {
-                    console.warn("ApiClient: No refresh token available.");
+                    this.handleLogout();
+                    this.isRefreshing = false;
                 }
+            } else {
+                this.isRefreshing = false;
             }
         }
 
         return response;
+    }
+
+    private handleLogout() {
+        localStorage.removeItem("authUser");
+        this.notifyTokenChange(null);
+        // We let the app handle the redirect based on the null token
+        this.onRefreshed(""); // Resolve waiting promises with empty token (will fail again but stop hanging)
     }
 
     get(endpoint: string, options?: ApiRequestOptions) {
@@ -131,14 +170,15 @@ class ApiClient {
     }
 
     post(endpoint: string, body?: any, options?: ApiRequestOptions) {
+        const headers: HeadersInit = { ...(options?.headers || {}) };
+        if (body !== undefined) {
+            (headers as any)["Content-Type"] = "application/json";
+        }
         return this.request(endpoint, {
             ...options,
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                ...(options?.headers || {}),
-            },
-            body: JSON.stringify(body),
+            headers,
+            body: body !== undefined ? JSON.stringify(body) : undefined,
         });
     }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Dashboard } from './components/Dashboard';
 import { WorkflowVisualization } from './components/WorkflowVisualization';
@@ -17,28 +17,15 @@ import { MemberOnboarding } from './components/MemberOnboarding';
 import { SupplierOnboarding } from './components/SupplierOnboarding';
 import { PublicMemberRegistration } from './components/PublicMemberRegistration';
 import { PublicSupplierRegistration } from './components/PublicSupplierRegistration';
-import { ClipboardList, LogOut, Users, UserPlus } from 'lucide-react';
+import { ClipboardList, LogOut, Users, UserPlus, Loader2 } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
+import { AuthProvider, useAuth } from './context/AuthContext';
 
-interface AuthUser {
-  userId: number; // User ID from token (numeric)
-  email: string;
-  roles: string[];
-  group: number;
-  groupName: string;
-  loginType: string;
-  vendorId?: number; // Vendor ID from token claims (for Supplier users)
-  accessToken: string;
-  refreshToken: string;
-  permissions?: string[]; // Array of permission strings like "PURCHASE_REQUISITION:VIEW"
-}
-
-export default function App() {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  // Force build hash update
+function AppContent() {
+  const { user, logout, isLoading } = useAuth();
 
   const [showMemberOnboarding, setShowMemberOnboarding] = useState(false);
   const [showSupplierOnboarding, setShowSupplierOnboarding] = useState(false);
@@ -50,67 +37,22 @@ export default function App() {
     if (!user || !user.permissions || user.permissions.length === 0) return true; // Default to true if no permissions loaded (backward compatibility)
 
     // Convert UI module name to token module name
-    // "Purchase Requisition" -> "PURCHASE_REQUISITION"
-    // "Vendor Management" -> "VENDOR_MANAGEMENT"
-    // "Purchase Orders" -> "PURCHASE_ORDERS"
-    // "Master Data" -> "MASTER_DATA"
     const tokenModule = module.toUpperCase().replace(/ /g, '_');
-
-    // Build the permission string to look for
     const permissionString = `${tokenModule}:${action}`;
 
-    // Check if user has this permission
-    return user.permissions.some(p => p === permissionString);
+    return user.permissions.some((p: string) => p === permissionString);
   };
 
-  // Define module mapping for tabs
-  const tabModuleMap = {
-    'dashboard': 'Dashboard',
-    'workflow': 'Dashboard', // Workflow is part of Dashboard
-    'requisition': 'Purchase Requisition',
-    'pr-list': 'Purchase Requisition',
-    'rfq': 'Purchase Requisition', // RFQ is part of PR workflow
-    'vendors': 'Vendor Management',
-    'quotations': 'Quotations',
-    'purchase-orders': 'Purchase Orders',
-    'payments': 'Payments',
-    'reports': 'Reports',
-    'master-data': 'Master Data'
-  };
-
-  useEffect(() => {
-    // Check if user is already logged in
-    const storedUser = localStorage.getItem('authUser');
-    if (storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        // Check if token is expired
-        const tokenPayload = JSON.parse(atob(parsedUser.accessToken.split('.')[1]));
-        if (tokenPayload.exp * 1000 > Date.now()) {
-          // Ensure vendorId is extracted from token if not present in stored data
-          if (!parsedUser.vendorId && tokenPayload.id) {
-            parsedUser.vendorId = tokenPayload.id; // Extract from "id" field (e.g., id: 3)
-            localStorage.setItem('authUser', JSON.stringify(parsedUser));
-          }
-          setUser(parsedUser);
-        } else {
-          localStorage.removeItem('authUser');
-        }
-      } catch (error) {
-        localStorage.removeItem('authUser');
-      }
-    }
-  }, []);
-
-  const handleLogin = (authData: AuthUser) => {
-    setUser(authData);
-    localStorage.setItem('authUser', JSON.stringify(authData));
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('authUser');
-  };
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="size-8 animate-spin text-blue-600" />
+          <p className="text-slate-500">Loading session...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!user) {
     if (showPublicRegistration) {
@@ -141,7 +83,6 @@ export default function App() {
     }
     return (
       <Login
-        onLogin={handleLogin}
         onRegisterMember={() => setShowPublicRegistration(true)}
         onRegisterSupplier={() => setShowPublicSupplierRegistration(true)}
       />
@@ -215,7 +156,7 @@ export default function App() {
                 </>
               )}
 
-              <Button variant="outline" size="sm" onClick={handleLogout}>
+              <Button variant="outline" size="sm" onClick={logout}>
                 <LogOut className="size-4 mr-2" />
                 Logout
               </Button>
@@ -303,7 +244,7 @@ export default function App() {
 
               {hasPermission('Payments') && (
                 <TabsContent value="payments">
-                  <PaymentTracking />
+                  <PaymentTracking authToken={user.accessToken} />
                 </TabsContent>
               )}
 
@@ -340,5 +281,13 @@ export default function App() {
       </main>
       <Toaster />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

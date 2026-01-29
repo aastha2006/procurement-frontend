@@ -8,14 +8,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { ClipboardList, Building2, Truck, AlertCircle, UserPlus, Mail, Lock, Loader2, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '../context/AuthContext';
 
 interface LoginProps {
-  onLogin: (authData: any) => void;
   onRegisterMember?: () => void;
   onRegisterSupplier?: () => void;
 }
 
-export function Login({ onLogin, onRegisterMember, onRegisterSupplier }: LoginProps) {
+export function Login({ onRegisterMember, onRegisterSupplier }: LoginProps) {
+  const { login } = useAuth();
   const [loginType, setLoginType] = useState<'Society' | 'Supplier'>('Society');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -89,7 +90,7 @@ export function Login({ onLogin, onRegisterMember, onRegisterSupplier }: LoginPr
           description: data.message || 'Welcome to Procurement Management System'
         });
 
-        onLogin(authData);
+        login(authData);
       } else {
         throw new Error('Invalid response from server');
       }
@@ -539,7 +540,7 @@ export function Login({ onLogin, onRegisterMember, onRegisterSupplier }: LoginPr
 
             <div className="mt-6 pt-6 border-t border-slate-200">
               <p className="text-xs text-center text-slate-500">
-                Demo Credentials: chanchal@yopmail.com / kKN+%56O
+                Demo Credentials: Aastha@yopmail.com / kKN+%56O
               </p>
             </div>
           </CardContent>

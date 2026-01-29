@@ -3,13 +3,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { FileQuestion, TrendingDown, Award, AlertCircle, Loader2, RefreshCw, CheckCircle2, ShoppingCart } from 'lucide-react';
+import { FileQuestion, TrendingDown, Award, AlertCircle, Loader2, RefreshCw, CheckCircle2, ShoppingCart, ArrowDownToLine } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   fetchRecentRFQs,
   fetchRFQComparison,
   selectRFQVendor,
-  generatePOFromQuotation
+  generatePOFromQuotation,
+  submitInvoice
 } from '../services/procurementService';
 
 // TypeScript Interfaces matching API structure
@@ -67,6 +68,8 @@ export function QuotationComparison({ authToken }: QuotationComparisonProps) {
   const [fetchingComparison, setFetchingComparison] = useState<{ [key: number]: boolean }>({});
   const [approvingRFQ, setApprovingRFQ] = useState<{ [key: number]: boolean }>({});
   const [generatingPO, setGeneratingPO] = useState<{ [key: number]: boolean }>({});
+  const [generatedPOs, setGeneratedPOs] = useState<{ [key: number]: any }>({});
+  const [processingInvoice, setProcessingInvoice] = useState<{ [key: number]: boolean }>({});
 
   // Fetch list of RFQs that have quotations
   const fetchRFQs = async () => {
@@ -86,7 +89,7 @@ export function QuotationComparison({ authToken }: QuotationComparisonProps) {
         prNumber: rfq.pr?.prNumber || rfq.prNumber || rfq.prId || '',
         quotationCount: rfq.quotationCount || 0,
         hasQuotations: rfq.quotationCount > 0 ||
-          ['Quotations Received', 'Evaluation', 'QUOTATIONS_RECEIVED', 'VENDOR_SELECTED'].includes(rfq.status),
+          ['OPEN', 'Quotations Received', 'Evaluation', 'QUOTATIONS_RECEIVED', 'VENDOR_SELECTED'].includes(rfq.status),
         selectedVendor: rfq.selectedVendor || null,
         selectedBy: rfq.selectedBy || null,
         selectedOn: rfq.selectedOn || null,
@@ -191,36 +194,15 @@ export function QuotationComparison({ authToken }: QuotationComparisonProps) {
         throw new Error('Selected vendor details not found in comparison');
       }
 
-      // Note: Backend might expect PR ID, based on API review it uses prId param.
-      // Assuming rfq.comparisonData.rfqId maps to the PR context or we use the RFQ ID if the backend handles it.
-      // Based on user provided code snippet, it passed `rfq.comparisonData.rfqId` as `prId` which might be a mapping assumption.
-      // Ideally we should get PR ID. Let's try using the RFQ ID if PR ID isn't explicit, or check rfq object.
-      // Since we don't have explicit PR ID in ComparisonData interface, we rely on the backend accepting valid IDs.
-      // BUT `ProcurementController` endpoint expects `prId`.
-      // If `rfq.comparisonData.rfqId` is actually the `rfqId`, we might need the proper `prId`.
-      // The `fetchRecentRFQs` returns objects with `pr: { id: ... }`. let's use that if available in `rfqs` state.
-
-      // Find full RFQ object to get PR ID
-      // Note: fetchRecentRFQs returns full objects, but we mapped them. `normalized` uses `prNumber`.
-      // Let's assume for now that passing the RFQ ID might not work if it wants PR ID strict.
-      // However, in the user's snippet `const prId = rfq.comparisonData.rfqId;` was used.
-      // Let's trust the user's snippet intent but be careful. 
-      // A safer bet: The backend endpoint `issuePO` takes `@RequestParam Long prId`.
-      // If we can't find PR ID, this might fail.
-
-      // Workaround: We will use rfqId as prId if we have to, BUT 
-      // better to assume the backend might have meant `rfqId` or the variable naming in snippet was loose.
-      // Let's rely on the fact that `fetchRecentRFQs` (backend) returns `pr` object.
-      // We preserved `id` in `rfqs` state. 
-      // We will pass `rfq.id` if prId is missing, but clearly label it.
-
-      await generatePOFromQuotation(
+      const newPO = await generatePOFromQuotation(
         authToken,
-        rfq.comparisonData.rfqId, // Using rfqId as proxy for PR ID based on snippet, or actual PR ID if available?
+        rfq.comparisonData.rfqId,
         rfq.selectedVendor,
         selectedVendor.total,
         selectedVendor.gst
       );
+
+      setGeneratedPOs(prev => ({ ...prev, [rfq.id]: newPO }));
 
       toast.success('Purchase Order Generated', {
         description: `PO created for ${selectedVendor.vendorName}`
@@ -230,6 +212,40 @@ export function QuotationComparison({ authToken }: QuotationComparisonProps) {
       toast.error('Failed to generate PO', { description: error.message });
     } finally {
       setGeneratingPO(prev => ({ ...prev, [rfq.id]: false }));
+    }
+  };
+
+  const handleReceiveInvoice = async (rfqId: number) => {
+    if (!authToken) return;
+
+    const po = generatedPOs[rfqId];
+    if (!po) return;
+
+    // Auto-generate invoice details for simplicity (Shortcut Workflow)
+    const invoiceNumber = `INV-${po.poNumber?.split('-')?.[1] || po.id}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const today = new Date().toISOString().split('T')[0];
+    const amount = po.totalAmount;
+    const gst = po.gst;
+    const poVendorId = po.vendor?.id || po.vendorId;
+
+    if (!poVendorId) {
+      toast.error("Vendor information missing from PO");
+      return;
+    }
+
+    setProcessingInvoice(prev => ({ ...prev, [rfqId]: true }));
+
+    try {
+      await submitInvoice(authToken, po.id, poVendorId, invoiceNumber, today, amount, gst);
+      toast.success("Invoice Received Successfully", {
+        description: `Generated Invoice #${invoiceNumber}. Payment tracking initiated.`
+      });
+      setGeneratedPOs(prev => ({ ...prev, [rfqId]: { ...po, invoiceReceived: true } }));
+
+    } catch (error: any) {
+      toast.error("Failed to receive invoice", { description: error.message });
+    } finally {
+      setProcessingInvoice(prev => ({ ...prev, [rfqId]: false }));
     }
   };
 
@@ -318,21 +334,37 @@ export function QuotationComparison({ authToken }: QuotationComparisonProps) {
                         <Badge variant="default">{rfq.status}</Badge>
                       )}
 
-                      {/* Generat PO Button */}
+                      {/* Generate PO or Receive Invoice Button */}
                       {isVendorSelected && (
-                        <Button
-                          size="sm"
-                          className="bg-purple-600 hover:bg-purple-700 ml-2"
-                          onClick={() => handleGeneratePO(rfq)}
-                          disabled={isGeneratingPO}
-                        >
-                          {isGeneratingPO ? (
-                            <Loader2 className="size-3 mr-1 animate-spin" />
-                          ) : (
-                            <ShoppingCart className="size-3 mr-1" />
-                          )}
-                          Generate PO
-                        </Button>
+                        generatedPOs[rfq.id] ? (
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 ml-2"
+                            onClick={() => handleReceiveInvoice(rfq.id)}
+                            disabled={processingInvoice[rfq.id] || generatedPOs[rfq.id].invoiceReceived}
+                          >
+                            {processingInvoice[rfq.id] ? (
+                              <Loader2 className="size-3 mr-1 animate-spin" />
+                            ) : (
+                              <ArrowDownToLine className="size-3 mr-1" />
+                            )}
+                            {generatedPOs[rfq.id].invoiceReceived ? 'Invoice Received' : 'Receive Invoice'}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="bg-purple-600 hover:bg-purple-700 ml-2"
+                            onClick={() => handleGeneratePO(rfq)}
+                            disabled={isGeneratingPO}
+                          >
+                            {isGeneratingPO ? (
+                              <Loader2 className="size-3 mr-1 animate-spin" />
+                            ) : (
+                              <ShoppingCart className="size-3 mr-1" />
+                            )}
+                            Generate PO
+                          </Button>
+                        )
                       )}
                     </div>
                     {comparisonData && (
