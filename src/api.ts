@@ -197,6 +197,54 @@ class ApiClient {
     delete(endpoint: string, options?: ApiRequestOptions) {
         return this.request(endpoint, { ...options, method: "DELETE" });
     }
+
+    public async refreshToken(): Promise<boolean> {
+        if (this.isRefreshing) return false;
+
+        this.isRefreshing = true;
+        const authUserRaw = localStorage.getItem("authUser");
+        if (!authUserRaw) {
+            this.isRefreshing = false;
+            return false;
+        }
+
+        try {
+            const authUser: AuthUser = JSON.parse(authUserRaw);
+            if (!authUser.refreshToken) throw new Error("No refresh token");
+
+            const refreshResponse = await fetch(
+                `${this.baseUrl}/api/auth/refresh-token`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ refreshtoken: authUser.refreshToken }),
+                }
+            );
+
+            if (refreshResponse.ok) {
+                const data: RefreshTokenResponse = await refreshResponse.json();
+                const updatedAuthUser = {
+                    ...authUser,
+                    accessToken: data.accesstoken,
+                    refreshToken: data.refreshtoken ?? authUser.refreshToken,
+                };
+
+                localStorage.setItem("authUser", JSON.stringify(updatedAuthUser));
+                this.notifyTokenChange(updatedAuthUser);
+                this.onRefreshed(data.accesstoken);
+                return true;
+            } else {
+                this.handleLogout();
+                return false;
+            }
+        } catch (error) {
+            console.error("Manual refresh failed", error);
+            this.handleLogout();
+            return false;
+        } finally {
+            this.isRefreshing = false;
+        }
+    }
 }
 
 export const api = new ApiClient(API_BASE_URL);

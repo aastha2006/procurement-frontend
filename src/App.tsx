@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
+import { SessionManager } from './components/SessionManager';
 import { Dashboard } from './components/Dashboard';
 import { WorkflowVisualization } from './components/WorkflowVisualization';
 import { PurchaseRequisition } from './components/PurchaseRequisition';
@@ -109,6 +110,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-cyan-50">
+      <SessionManager />
       <header className="bg-white border-b border-sky-200 shadow-sm">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
