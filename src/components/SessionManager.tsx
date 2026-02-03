@@ -36,6 +36,9 @@ export function SessionManager() {
             const expiryTime = decoded.exp * 1000; // Convert to ms
 
             const checkExpiry = () => {
+                // CACHE BUSTER - Fixed URL Logic v1.3
+                console.log("Checking session expiry... (v1.3 Fix Applied)");
+
                 const now = Date.now();
                 const timeRemaining = expiryTime - now;
 
