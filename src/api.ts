@@ -212,8 +212,27 @@ class ApiClient {
             const authUser: AuthUser = JSON.parse(authUserRaw);
             if (!authUser.refreshToken) throw new Error("No refresh token");
 
+            // Fix: remove duplicate /api if base url already has it
+            const endpoint = "/auth/refresh-token";
+            const baseUrl = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
+            const finalUrl = baseUrl.endsWith('/api')
+                ? `${baseUrl}${endpoint}` // baseUrl has /api, endpoint is /auth/... -> .../api/auth/...
+                : `${baseUrl}/api${endpoint}`; // baseUrl has no /api -> .../api/auth/...
+
+            // Actually, simpler: Just use the same logic as request(), or manually construct carefully.
+            // Current production env is .../api. 
+            // So we want .../api/auth/refresh-token
+
+            // Let's just use the relative path "api/auth/refresh-token" but be careful about the base.
+            // Best way: Use the request method's logic or a smart join.
+            // But since api.ts is manual fetch here:
+
+            const refreshUrl = this.baseUrl.endsWith('/api')
+                ? `${this.baseUrl}/auth/refresh-token`
+                : `${this.baseUrl}/api/auth/refresh-token`;
+
             const refreshResponse = await fetch(
-                `${this.baseUrl}/api/auth/refresh-token`,
+                refreshUrl,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
